@@ -3,6 +3,7 @@
 package dnsoverstream
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -76,6 +77,31 @@ func newStreamStub() *streamStub {
 	}
 }
 
+// buildRawResponseFromQuery packs a valid DNS response from a raw DNS query.
+func buildRawResponseFromQuery(t *testing.T, rawQuery []byte) []byte {
+	t.Helper()
+
+	queryMsg := &dns.Msg{}
+	require.NoError(t, queryMsg.Unpack(rawQuery))
+
+	resp := &dns.Msg{}
+	resp.SetReply(queryMsg)
+	resp.Answer = []dns.RR{&dns.A{
+		Hdr: dns.RR_Header{
+			Name:   queryMsg.Question[0].Name,
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    1,
+		},
+		A: net.ParseIP("1.1.1.1"),
+	}}
+
+	rawResp, err := resp.Pack()
+	require.NoError(t, err)
+
+	return rawResp
+}
+
 func TestExchangeWithStreamOpenerOpenStreamError(t *testing.T) {
 	expected := errors.New("open stream failed")
 	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
@@ -117,6 +143,50 @@ func TestExchangeWithStreamOpenerCloneAndMutateQuery(t *testing.T) {
 	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), msg.IsEdns0().UDPSize())
 }
 
+func TestExchangeWithStreamOpenerObserveRawQuery(t *testing.T) {
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	var (
+		hookQuery  []byte
+		rawWritten []byte
+		rawResp    []byte
+		respReader *bytes.Reader
+	)
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+
+			stub.write = func(p []byte) (int, error) {
+				rawWritten = append([]byte{}, p...)
+				rawResp = buildRawResponseFromQuery(t, rawWritten[2:])
+				frame := append([]byte{byte(len(rawResp) >> 8), byte(len(rawResp))}, rawResp...)
+				respReader = bytes.NewReader(frame)
+				return len(p), nil
+			}
+
+			stub.read = func(p []byte) (int, error) {
+				if respReader == nil {
+					return 0, io.EOF
+				}
+				return respReader.Read(p)
+			}
+
+			return stub, nil
+		},
+	}
+
+	dt.ObserveRawQuery = func(p []byte) {
+		hookQuery = append([]byte{}, p...)
+		if len(p) > 0 {
+			p[0] ^= 0xff // mutate to verify we've got a copy
+		}
+	}
+
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, query)
+	require.NoError(t, err)
+	require.Equal(t, rawWritten[2:], hookQuery)
+}
+
 func TestExchangeWithStreamOpenerFrameLength(t *testing.T) {
 	var rawWritten []byte
 	conn := &streamOpenerStub{
@@ -137,6 +207,48 @@ func TestExchangeWithStreamOpenerFrameLength(t *testing.T) {
 
 	frameLen := int(rawWritten[0])<<8 | int(rawWritten[1])
 	require.Equal(t, len(rawWritten)-2, frameLen)
+}
+
+func TestExchangeWithStreamOpenerObserveRawResponse(t *testing.T) {
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	var (
+		hookResp   []byte
+		rawResp    []byte
+		respReader *bytes.Reader
+	)
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+
+			stub.write = func(p []byte) (int, error) {
+				rawResp = buildRawResponseFromQuery(t, p[2:])
+				frame := append([]byte{byte(len(rawResp) >> 8), byte(len(rawResp))}, rawResp...)
+				respReader = bytes.NewReader(frame)
+				return len(p), nil
+			}
+
+			stub.read = func(p []byte) (int, error) {
+				if respReader == nil {
+					return 0, io.EOF
+				}
+				return respReader.Read(p)
+			}
+
+			return stub, nil
+		},
+	}
+
+	dt.ObserveRawResponse = func(p []byte) {
+		hookResp = append([]byte{}, p...)
+		if len(p) > 0 {
+			p[0] ^= 0xff // mutate to verify we've got a copy
+		}
+	}
+
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, query)
+	require.NoError(t, err)
+	require.Equal(t, rawResp, hookResp)
 }
 
 func TestExchangeWithStreamOpenerSetsDeadline(t *testing.T) {

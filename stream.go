@@ -17,6 +17,7 @@ package dnsoverstream
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"math"
@@ -86,6 +87,12 @@ type Transport struct {
 
 	// endpoint is the server endpoint to use to query.
 	endpoint netip.AddrPort
+
+	// ObserveRawQuery is an optional hook called with a copy of the raw DNS query.
+	ObserveRawQuery func([]byte)
+
+	// ObserveRawResponse is an optional hook called with a copy of the raw DNS response.
+	ObserveRawResponse func([]byte)
 }
 
 // newTransportStream creates a new [*Transport].
@@ -156,6 +163,9 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 	if err != nil {
 		return nil, err
 	}
+	if dt.ObserveRawQuery != nil {
+		dt.ObserveRawQuery(bytes.Clone(rawQuery))
+	}
 
 	// 4. Wrap the query into a frame
 	rawQueryFrame := newStreamMsgFrame(rawQuery)
@@ -193,6 +203,9 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 	rawResp := make([]byte, length)
 	if _, err := io.ReadFull(br, rawResp); err != nil {
 		return nil, err
+	}
+	if dt.ObserveRawResponse != nil {
+		dt.ObserveRawResponse(bytes.Clone(rawResp))
 	}
 
 	// 8. Parse the response and return
