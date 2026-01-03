@@ -5,6 +5,7 @@ package dnsoverstream
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
@@ -65,6 +66,16 @@ func (s *streamStub) Close() error {
 	return s.close()
 }
 
+// newStreamStub creates a stream stub with default no-op implementations.
+func newStreamStub() *streamStub {
+	return &streamStub{
+		setDeadline: func(t time.Time) error { return nil },
+		read:        func(p []byte) (int, error) { return 0, io.EOF },
+		write:       func(p []byte) (int, error) { return 0, nil },
+		close:       func() error { return nil },
+	}
+}
+
 func TestExchangeWithStreamOpenerOpenStreamError(t *testing.T) {
 	expected := errors.New("open stream failed")
 	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
@@ -78,12 +89,107 @@ func TestExchangeWithStreamOpenerOpenStreamError(t *testing.T) {
 	require.ErrorIs(t, err, expected)
 }
 
+func TestExchangeWithStreamOpenerCloneAndMutateQuery(t *testing.T) {
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+	orig := *query
+	var rawWritten []byte
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+			stub.write = func(p []byte) (int, error) {
+				rawWritten = append([]byte{}, p...)
+				return len(p), nil
+			}
+			return stub, nil
+		},
+	}
+
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, query)
+	require.Error(t, err)
+	require.NotEmpty(t, rawWritten)
+	require.Equal(t, orig, *query)
+
+	rawQuery := rawWritten[2:]
+	msg := &dns.Msg{}
+	require.NoError(t, msg.Unpack(rawQuery))
+	require.True(t, msg.RecursionDesired)
+	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), msg.IsEdns0().UDPSize())
+}
+
+func TestExchangeWithStreamOpenerFrameLength(t *testing.T) {
+	var rawWritten []byte
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+			stub.write = func(p []byte) (int, error) {
+				rawWritten = append([]byte{}, p...)
+				return len(p), nil
+			}
+			return stub, nil
+		},
+	}
+
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, dnscodec.NewQuery("example.com", dns.TypeA))
+	require.Error(t, err)
+	require.GreaterOrEqual(t, len(rawWritten), 2)
+
+	frameLen := int(rawWritten[0])<<8 | int(rawWritten[1])
+	require.Equal(t, len(rawWritten)-2, frameLen)
+}
+
+func TestExchangeWithStreamOpenerSetsDeadline(t *testing.T) {
+	deadline := time.Now().Add(time.Second)
+	var gotDeadline []time.Time
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+			stub.setDeadline = func(t time.Time) error {
+				gotDeadline = append(gotDeadline, t)
+				return nil
+			}
+			return stub, nil
+		},
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	_, err := dt.ExchangeWithStreamOpener(ctx, conn, dnscodec.NewQuery("example.com", dns.TypeA))
+	require.Error(t, err)
+	require.True(t, len(gotDeadline) == 2)
+	require.False(t, gotDeadline[0].IsZero())
+	require.True(t, gotDeadline[1].IsZero())
+	require.WithinDuration(t, deadline, gotDeadline[0], time.Second)
+}
+
+func TestExchangeWithStreamOpenerClosesStream(t *testing.T) {
+	var closed bool
+	conn := &streamOpenerStub{
+		openStream: func() (Stream, error) {
+			stub := newStreamStub()
+			stub.close = func() error {
+				closed = true
+				return nil
+			}
+			return stub, nil
+		},
+	}
+
+	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, dnscodec.NewQuery("example.com", dns.TypeA))
+	require.Error(t, err)
+	require.True(t, closed)
+}
+
 func TestExchangeWithStreamOpenerNewMsgError(t *testing.T) {
 	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
-				close:       func() error { return nil },
+				close: func() error { return nil },
 			}, nil
 		},
 	}
@@ -100,7 +206,7 @@ func TestExchangeWithStreamOpenerPackError(t *testing.T) {
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
-				close:       func() error { return nil },
+				close: func() error { return nil },
 			}, nil
 		},
 	}
@@ -115,8 +221,8 @@ func TestExchangeWithStreamOpenerWriteError(t *testing.T) {
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
-				write:       func(p []byte) (int, error) { return 0, expected },
-				close:       func() error { return nil },
+				write: func(p []byte) (int, error) { return 0, expected },
+				close: func() error { return nil },
 			}, nil
 		},
 	}
@@ -131,9 +237,9 @@ func TestExchangeWithStreamOpenerReadHeaderError(t *testing.T) {
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
-				read:        func(p []byte) (int, error) { return 0, expected },
-				write:       func(p []byte) (int, error) { return len(p), nil },
-				close:       func() error { return nil },
+				read:  func(p []byte) (int, error) { return 0, expected },
+				write: func(p []byte) (int, error) { return len(p), nil },
+				close: func() error { return nil },
 			}, nil
 		},
 	}
