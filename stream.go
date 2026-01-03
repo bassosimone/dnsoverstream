@@ -159,10 +159,7 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 	}
 
 	// 4. Wrap the query into a frame
-	rawQueryFrame, err := newStreamMsgFrame(rawQuery)
-	if err != nil {
-		return nil, err
-	}
+	rawQueryFrame := newStreamMsgFrame(rawQuery)
 
 	// 5. Send the query.
 	if _, err := stream.Write(rawQueryFrame); err != nil {
@@ -202,17 +199,17 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 	// 8. Parse the response and return
 	respMsg := new(dns.Msg)
 	if err := respMsg.Unpack(rawResp); err != nil {
-		return nil, err
+		return nil, dnscodec.ErrServerMisbehaving
 	}
 	return dnscodec.ParseResponse(queryMsg, respMsg)
 }
 
 // newStreamMsgFrame creates a new raw frame for sending a message over a stream.
-func newStreamMsgFrame(rawMsg []byte) ([]byte, error) {
+func newStreamMsgFrame(rawMsg []byte) []byte {
 	// TODO(bassosimone): re-evaluate whether this can panic when we add more tests.
 	runtimex.Assert(len(rawMsg) <= math.MaxUint16)
 	rawMsgFrame := []byte{byte(len(rawMsg) >> 8)}
 	rawMsgFrame = append(rawMsgFrame, byte(len(rawMsg)))
 	rawMsgFrame = append(rawMsgFrame, rawMsg...)
-	return rawMsgFrame, nil
+	return rawMsgFrame
 }

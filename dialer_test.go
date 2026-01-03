@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/bassosimone/dnscodec"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,5 +44,14 @@ func TestQUICStreamDialerDialContextCanceled(t *testing.T) {
 		qd: NewQUICDialer(pconn, "example.com"),
 	}
 	_, err = dialer.DialContext(ctx, netip.MustParseAddrPort("127.0.0.1:853"))
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestTransportExchangeDialContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	dt := NewTransportTCP(&net.Dialer{}, netip.MustParseAddrPort("127.0.0.1:53"))
+	_, err := dt.Exchange(ctx, dnscodec.NewQuery("example.com", 1))
 	require.ErrorIs(t, err, context.Canceled)
 }
