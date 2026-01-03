@@ -4,6 +4,8 @@ go 1.25.5
 
 require (
 	github.com/bassosimone/dnscodec v0.0.0-20260102202954-f8e13f827a5f
+	github.com/bassosimone/dnstest v0.0.0-20251231113033-a337a8ce22ac
+	github.com/bassosimone/pkitest v0.0.0-20260103094946-6ad6d30dd4c5
 	github.com/bassosimone/runtimex v0.0.0-20251217192325-70882b9ab4d3
 	github.com/miekg/dns v1.1.69
 	github.com/quic-go/quic-go v0.58.0
@@ -14,6 +16,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.31.0 // indirect
 	golang.org/x/net v0.48.0 // indirect
