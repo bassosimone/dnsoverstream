@@ -74,7 +74,7 @@ type quicStreamDialer struct {
 var _ streamDialer = &quicStreamDialer{}
 
 // DialContext implements [streamDialer].
-func (d *quicStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (streamConn, error) {
+func (d *quicStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
 	conn, err := d.qd.Dial(ctx, address)
 	if err != nil {
 		return nil, err
@@ -89,13 +89,13 @@ func (d *quicStreamDialer) MutateQuery(msg *dnscodec.Query) {
 	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
 }
 
-// quicConnAdapter adapts [*quic.Conn] to [streamConn].
+// quicConnAdapter adapts [*quic.Conn] to [StreamOpener].
 type quicConnAdapter struct {
 	qconn *quic.Conn
 	once  sync.Once
 }
 
-// CloseWithError implements [streamConn].
+// CloseWithError implements [StreamOpener].
 func (q *quicConnAdapter) CloseWithError(code quic.ApplicationErrorCode, desc string) (err error) {
 	q.once.Do(func() {
 		err = q.qconn.CloseWithError(code, desc)
@@ -103,7 +103,7 @@ func (q *quicConnAdapter) CloseWithError(code quic.ApplicationErrorCode, desc st
 	return
 }
 
-// OpenStream implements [streamConn].
-func (q *quicConnAdapter) OpenStream() (stream, error) {
+// OpenStream implements [StreamOpener].
+func (q *quicConnAdapter) OpenStream() (Stream, error) {
 	return q.qconn.OpenStream()
 }

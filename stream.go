@@ -29,26 +29,26 @@ import (
 	"github.com/quic-go/quic-go"
 )
 
-// stream is a stream suitable for DNS over TCP, TLS, or QUIC.
-type stream interface {
+// Stream is a stream suitable for DNS over TCP, TLS, or QUIC.
+type Stream interface {
 	// SetDeadline sets the I/O deadline.
 	SetDeadline(t time.Time) error
 
-	// We can obviously do I/O with the stream.
+	// We can obviously do I/O with the [Stream].
 	io.ReadWriter
 
-	// The semantics of closing a stream depends on the
+	// The semantics of closing a [Stream] depends on the
 	// protocol we are actually using.
 	//
 	// For [net.Conn] and [*tls.Conn], this is a no-op since the
 	// [Stream] is the [StreamConn].
 	//
-	// For [*quic.Stream], this actually closes the stream.
+	// For [*quic.Stream], this actually closes the [Stream].
 	io.Closer
 }
 
-// streamConn abstracts over [net.Conn], [*tls.Conn], or [*quic.Conn].
-type streamConn interface {
+// StreamOpener abstracts over [net.Conn], [*tls.Conn], or [*quic.Conn].
+type StreamOpener interface {
 	// CloseWithError closes the connection.
 	//
 	// For [net.Conn] and [*tls.Conn], this calls conn.Close.
@@ -56,18 +56,18 @@ type streamConn interface {
 	// For [*quic.Conn], this calls conn.CloseWithError.
 	CloseWithError(code quic.ApplicationErrorCode, desc string) error
 
-	// OpenStream opens a new stream over the connection.
+	// OpenStream opens a new [Stream] over the connection.
 	//
 	// For [net.Conn] and [*tls.Conn], this returns the connection itself.
 	//
 	// For [*quic.Conn] this opens a [*quic.Stream].
-	OpenStream() (stream, error)
+	OpenStream() (Stream, error)
 }
 
 // streamDialer allows dialing a [net.Conn], [*tls.Conn], or [*quic.Conn].
 type streamDialer interface {
-	// DialContext creates a new [StreamConn].
-	DialContext(ctx context.Context, address netip.AddrPort) (streamConn, error)
+	// DialContext creates a new [StreamOpener].
+	DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error)
 
 	// MutateQuery mutates the [*dnscodec.Query] to apply the correct
 	// settings for the protocol that we are using.
@@ -81,14 +81,10 @@ type streamDialer interface {
 // Transport creates a new connection for each Exchange call and targets the
 // specific [netip.AddrPort] endpoint configured at construction time.
 type Transport struct {
-	// dialer is the [StreamDialer] to build the stream for exchanging messages.
-	//
-	// Set by [NewTransportStream] to the user-provided value.
+	// dialer is the [streamDialer] to build the [StreamOpener] for exchanging messages.
 	dialer streamDialer
 
 	// endpoint is the server endpoint to use to query.
-	//
-	// Set by [NewTransportStream] to the user-provided value.
 	endpoint netip.AddrPort
 }
 
@@ -97,10 +93,18 @@ func newTransportStream(dialer streamDialer, endpoint netip.AddrPort) *Transport
 	return &Transport{dialer: dialer, endpoint: endpoint}
 }
 
+// Dial creates a new [StreamOpener] with the endpoint associated with this [*Transport].
+//
+// This method enables building long-lived connections and reusing them across
+// multiple exchanges via [*Transport.ExchangeWithStreamOpener].
+func (dt *Transport) Dial(ctx context.Context) (StreamOpener, error) {
+	return dt.dialer.DialContext(ctx, dt.endpoint)
+}
+
 // Exchange sends a [*dnscodec.Query] and receives a [*dnscodec.Response].
 func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnscodec.Response, error) {
 	// 1. create the connection
-	conn, err := dt.dialer.DialContext(ctx, dt.endpoint)
+	conn, err := dt.Dial(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -120,20 +124,29 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 		conn.CloseWithError(quicNoError, "")
 	}()
 
-	// 3. Open the stream for sending the DoTCP, DoT, or DoQ query.
+	// 3. defer to ExchangeWithStreamOpener.
+	return dt.ExchangeWithStreamOpener(ctx, conn, query)
+}
+
+// ExchangeWithStreamOpener sends a [*dnscodec.Query] and receives a [*dnscodec.Response].
+//
+// This method allows reusing a long-lived connection across multiple exchanges.
+func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOpener, query *dnscodec.Query) (*dnscodec.Response, error) {
+	// 1. Open the stream for sending the DoTCP, DoT, or DoQ query.
 	stream, err := conn.OpenStream()
 	if err != nil {
 		return nil, err
 	}
 	defer stream.Close()
 
-	// 4. Use the context deadline to limit the query lifetime
+	// 2. Use the context deadline to limit the query lifetime
 	// as documented in the [*Transport.Exchange] function.
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = stream.SetDeadline(deadline)
+		defer stream.SetDeadline(time.Time{})
 	}
 
-	// 5. Mutate and serialize the query.
+	// 3. Mutate and serialize the query.
 	query = query.Clone()
 	dt.dialer.MutateQuery(query)
 	queryMsg, err := query.NewMsg()
@@ -145,18 +158,18 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 		return nil, err
 	}
 
-	// 6. Wrap the query into a frame
+	// 4. Wrap the query into a frame
 	rawQueryFrame, err := newStreamMsgFrame(rawQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	// 7. Send the query.
+	// 5. Send the query.
 	if _, err := stream.Write(rawQueryFrame); err != nil {
 		return nil, err
 	}
 
-	// 8. Ensure we close the stream when using DoQ to signal the
+	// 6. Ensure we close the [Stream] when using DoQ to signal the
 	// upstream server that it is okay to send a response.
 	//
 	// RFC 9250 is very clear in this respect:
@@ -172,7 +185,7 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 	// Obviously, this is a no-op for TCP/TLS
 	stream.Close()
 
-	// 9. Wrap the conn to avoid issuing too many reads
+	// 7. Wrap the stream to avoid issuing too many reads
 	// then read the response header and message
 	br := bufio.NewReader(stream)
 	header := make([]byte, 2)
@@ -186,7 +199,7 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 		return nil, err
 	}
 
-	// 10. Parse the response and return
+	// 8. Parse the response and return
 	respMsg := new(dns.Msg)
 	if err := respMsg.Unpack(rawResp); err != nil {
 		return nil, err

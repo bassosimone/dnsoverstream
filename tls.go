@@ -52,7 +52,7 @@ type tlsStreamDialer struct {
 var _ streamDialer = &tlsStreamDialer{}
 
 // DialContext implements [streamDialer].
-func (d *tlsStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (streamConn, error) {
+func (d *tlsStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
 	conn, err := d.nd.DialContext(ctx, "tcp", address.String())
 	if err != nil {
 		return nil, err
