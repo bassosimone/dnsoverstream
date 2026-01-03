@@ -139,8 +139,7 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 	}
 	defer stream.Close()
 
-	// 2. Use the context deadline to limit the query lifetime
-	// as documented in the [*Transport.Exchange] function.
+	// 2. Use the context deadline to limit the query lifetime.
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = stream.SetDeadline(deadline)
 		defer stream.SetDeadline(time.Time{})
