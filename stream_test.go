@@ -77,6 +77,21 @@ func newStreamStub() *streamStub {
 	}
 }
 
+// errorAfterReader returns the given error after exhausting the reader.
+type errorAfterReader struct {
+	r   *bytes.Reader
+	err error
+}
+
+// Read implements [io.Reader].
+func (e *errorAfterReader) Read(p []byte) (int, error) {
+	n, err := e.r.Read(p)
+	if err == io.EOF {
+		return 0, e.err
+	}
+	return n, err
+}
+
 // buildRawResponseFromQuery packs a valid DNS response from a raw DNS query.
 func buildRawResponseFromQuery(t *testing.T, rawQuery []byte) []byte {
 	t.Helper()
@@ -365,17 +380,12 @@ func TestExchangeWithStreamOpenerReadBodyError(t *testing.T) {
 	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
-			var calls int
+			headerOnly := &errorAfterReader{
+				r:   bytes.NewReader([]byte{0x00, 0x01}),
+				err: expected,
+			}
 			return &streamStub{
-				read: func(p []byte) (int, error) {
-					if calls == 0 {
-						calls++
-						p[0] = 0
-						p[1] = 1
-						return 2, nil
-					}
-					return 0, expected
-				},
+				read:  headerOnly.Read,
 				write: func(p []byte) (int, error) { return len(p), nil },
 				close: func() error { return nil },
 			}, nil
@@ -390,18 +400,9 @@ func TestExchangeWithStreamOpenerUnpackError(t *testing.T) {
 	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
-			var calls int
+			frame := []byte{0x00, 0x01, 0xff}
 			return &streamStub{
-				read: func(p []byte) (int, error) {
-					if calls == 0 {
-						calls++
-						p[0] = 0
-						p[1] = 1
-						return 2, nil
-					}
-					p[0] = 0xff
-					return 1, nil
-				},
+				read:  bytes.NewReader(frame).Read,
 				write: func(p []byte) (int, error) { return len(p), nil },
 				close: func() error { return nil },
 			}, nil
@@ -417,7 +418,6 @@ func TestExchangeWithStreamOpenerParseResponseError(t *testing.T) {
 	query := dnscodec.NewQuery("example.com", dns.TypeA)
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
-			var calls int
 			// Prepare a message that is not a response to get ErrInvalidResponse
 			resp := &dns.Msg{}
 			resp.SetRcode(&dns.Msg{Question: []dns.Question{{
@@ -427,17 +427,9 @@ func TestExchangeWithStreamOpenerParseResponseError(t *testing.T) {
 			}}}, dns.RcodeRefused)
 			rawResp, err := resp.Pack()
 			require.NoError(t, err)
+			frame := append([]byte{byte(len(rawResp) >> 8), byte(len(rawResp))}, rawResp...)
 			return &streamStub{
-				read: func(p []byte) (int, error) {
-					if calls == 0 {
-						p[0] = byte(len(rawResp) >> 8)
-						p[1] = byte(len(rawResp))
-						calls++
-						return 2, nil
-					}
-					copy(p, rawResp)
-					return len(rawResp), nil
-				},
+				read:  bytes.NewReader(frame).Read,
 				write: func(p []byte) (int, error) { return len(p), nil },
 				close: func() error { return nil },
 			}, nil
