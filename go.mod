@@ -7,7 +7,7 @@ require (
 	github.com/bassosimone/dnstest v0.0.0-20260118074942-8b67c89ca4ec
 	github.com/bassosimone/pkitest v0.0.0-20260108162522-4e97d4738e31
 	github.com/bassosimone/runtimex v0.0.0-20260108162100-336f3823f6b7
-	github.com/miekg/dns v1.1.70
+	github.com/miekg/dns v1.1.72
 	github.com/quic-go/quic-go v0.59.0
 	github.com/stretchr/testify v1.11.1
 )
