@@ -15,22 +15,32 @@ import (
 
 	"github.com/bassosimone/dnscodec"
 	"github.com/miekg/dns"
-	"github.com/quic-go/quic-go"
 	"github.com/stretchr/testify/require"
 )
 
 type streamOpenerStub struct {
+	// openStream creates a new stream.
 	openStream func() (Stream, error)
+
+	// mutateQuery modifies the DNS query.
+	mutateQuery func(msg *dnscodec.Query)
+}
+
+// Close implements [StreamOpener].
+func (s *streamOpenerStub) Close() error {
+	return nil
+}
+
+// MutateQuery implements [StreamOpener].
+func (s *streamOpenerStub) MutateQuery(msg *dnscodec.Query) {
+	if s.mutateQuery != nil {
+		s.mutateQuery(msg)
+	}
 }
 
 // OpenStream implements [StreamOpener].
 func (s *streamOpenerStub) OpenStream() (Stream, error) {
 	return s.openStream()
-}
-
-// CloseWithError implements [StreamOpener].
-func (s *streamOpenerStub) CloseWithError(code quic.ApplicationErrorCode, desc string) error {
-	return nil
 }
 
 type streamStub struct {
@@ -119,7 +129,7 @@ func buildRawResponseFromQuery(t *testing.T, rawQuery []byte) []byte {
 
 func TestExchangeWithStreamOpenerOpenStreamError(t *testing.T) {
 	expected := errors.New("open stream failed")
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return nil, expected
@@ -135,6 +145,10 @@ func TestExchangeWithStreamOpenerCloneAndMutateQuery(t *testing.T) {
 	orig := *query
 	var rawWritten []byte
 	conn := &streamOpenerStub{
+		mutateQuery: func(msg *dnscodec.Query) {
+			// Mimic TCP behavior for this test.
+			msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
+		},
 		openStream: func() (Stream, error) {
 			stub := newStreamStub()
 			stub.write = func(p []byte) (int, error) {
@@ -145,7 +159,7 @@ func TestExchangeWithStreamOpenerCloneAndMutateQuery(t *testing.T) {
 		},
 	}
 
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, query)
 	require.Error(t, err)
 	require.NotEmpty(t, rawWritten)
@@ -160,7 +174,7 @@ func TestExchangeWithStreamOpenerCloneAndMutateQuery(t *testing.T) {
 
 func TestExchangeWithStreamOpenerObserveRawQuery(t *testing.T) {
 	query := dnscodec.NewQuery("example.com", dns.TypeA)
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	var (
 		hookQuery  []byte
 		rawWritten []byte
@@ -215,7 +229,7 @@ func TestExchangeWithStreamOpenerFrameLength(t *testing.T) {
 		},
 	}
 
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, dnscodec.NewQuery("example.com", dns.TypeA))
 	require.Error(t, err)
 	require.GreaterOrEqual(t, len(rawWritten), 2)
@@ -226,7 +240,7 @@ func TestExchangeWithStreamOpenerFrameLength(t *testing.T) {
 
 func TestExchangeWithStreamOpenerObserveRawResponse(t *testing.T) {
 	query := dnscodec.NewQuery("example.com", dns.TypeA)
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	var (
 		hookResp   []byte
 		rawResp    []byte
@@ -283,7 +297,7 @@ func TestExchangeWithStreamOpenerSetsDeadline(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	_, err := dt.ExchangeWithStreamOpener(ctx, conn, dnscodec.NewQuery("example.com", dns.TypeA))
 	require.Error(t, err)
 	require.True(t, len(gotDeadline) == 2)
@@ -305,14 +319,14 @@ func TestExchangeWithStreamOpenerClosesStream(t *testing.T) {
 		},
 	}
 
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, dnscodec.NewQuery("example.com", dns.TypeA))
 	require.Error(t, err)
 	require.True(t, closed)
 }
 
 func TestExchangeWithStreamOpenerNewMsgError(t *testing.T) {
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
@@ -329,7 +343,7 @@ func TestExchangeWithStreamOpenerPackError(t *testing.T) {
 	tooLongLabel := strings.Repeat("a", 64)
 	name := tooLongLabel + ".example.com"
 
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
@@ -344,7 +358,7 @@ func TestExchangeWithStreamOpenerPackError(t *testing.T) {
 
 func TestExchangeWithStreamOpenerWriteError(t *testing.T) {
 	expected := errors.New("write failed")
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
@@ -360,7 +374,7 @@ func TestExchangeWithStreamOpenerWriteError(t *testing.T) {
 
 func TestExchangeWithStreamOpenerReadHeaderError(t *testing.T) {
 	expected := errors.New("read header failed")
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			return &streamStub{
@@ -377,7 +391,7 @@ func TestExchangeWithStreamOpenerReadHeaderError(t *testing.T) {
 
 func TestExchangeWithStreamOpenerReadBodyError(t *testing.T) {
 	expected := errors.New("read body failed")
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			headerOnly := &errorAfterReader{
@@ -397,7 +411,7 @@ func TestExchangeWithStreamOpenerReadBodyError(t *testing.T) {
 }
 
 func TestExchangeWithStreamOpenerUnpackError(t *testing.T) {
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
 			frame := []byte{0x00, 0x01, 0xff}
@@ -414,7 +428,7 @@ func TestExchangeWithStreamOpenerUnpackError(t *testing.T) {
 }
 
 func TestExchangeWithStreamOpenerParseResponseError(t *testing.T) {
-	dt := newTransportStream(&tcpStreamDialer{&net.Dialer{}}, netip.AddrPort{})
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	query := dnscodec.NewQuery("example.com", dns.TypeA)
 	conn := &streamOpenerStub{
 		openStream: func() (Stream, error) {
@@ -438,4 +452,108 @@ func TestExchangeWithStreamOpenerParseResponseError(t *testing.T) {
 
 	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, query)
 	require.ErrorIs(t, err, dnscodec.ErrInvalidResponse)
+}
+
+// streamOpenerDialerStub implements [StreamOpenerDialer] for testing.
+type streamOpenerDialerStub struct {
+	// dialContext creates a new [StreamOpener].
+	dialContext func(ctx context.Context, address netip.AddrPort) (StreamOpener, error)
+}
+
+// DialContext implements [StreamOpenerDialer].
+func (d *streamOpenerDialerStub) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+	return d.dialContext(ctx, address)
+}
+
+func TestNewTransportWithCustomDialer(t *testing.T) {
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+	var (
+		gotMutate bool
+		rawResp   []byte
+	)
+	dialer := &streamOpenerDialerStub{
+		dialContext: func(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+			return &streamOpenerStub{
+				mutateQuery: func(msg *dnscodec.Query) {
+					gotMutate = true
+					msg.Flags |= dnscodec.QueryFlagBlockLengthPadding | dnscodec.QueryFlagDNSSec
+					msg.ID = 0
+					msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
+				},
+				openStream: func() (Stream, error) {
+					stub := newStreamStub()
+
+					stub.write = func(p []byte) (int, error) {
+						rawResp = buildRawResponseFromQuery(t, p[2:])
+						return len(p), nil
+					}
+
+					var respReader *bytes.Reader
+					stub.read = func(p []byte) (int, error) {
+						if respReader == nil {
+							frame := append([]byte{byte(len(rawResp) >> 8), byte(len(rawResp))}, rawResp...)
+							respReader = bytes.NewReader(frame)
+						}
+						return respReader.Read(p)
+					}
+
+					return stub, nil
+				},
+			}, nil
+		},
+	}
+
+	dt := NewTransport(dialer, netip.MustParseAddrPort("127.0.0.1:853"))
+	resp, err := dt.Exchange(context.Background(), query)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.True(t, gotMutate, "MutateQuery should have been called")
+}
+
+func TestNewTransportWithCustomDialerDialError(t *testing.T) {
+	expected := errors.New("dial failed")
+	dialer := &streamOpenerDialerStub{
+		dialContext: func(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+			return nil, expected
+		},
+	}
+
+	dt := NewTransport(dialer, netip.MustParseAddrPort("127.0.0.1:853"))
+	_, err := dt.Exchange(context.Background(), dnscodec.NewQuery("example.com", dns.TypeA))
+	require.ErrorIs(t, err, expected)
+}
+
+func TestTcpStreamConnMutateQuery(t *testing.T) {
+	conn := &tcpStreamConn{conn: nil}
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+
+	conn.MutateQuery(query)
+
+	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
+	require.Zero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
+	require.Zero(t, query.Flags&dnscodec.QueryFlagDNSSec)
+}
+
+func TestTlsStreamConnMutateQuery(t *testing.T) {
+	conn := &tlsStreamConn{conn: nil}
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+
+	conn.MutateQuery(query)
+
+	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
+	require.NotZero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
+	require.NotZero(t, query.Flags&dnscodec.QueryFlagDNSSec)
+}
+
+func TestQuicConnAdapterMutateQuery(t *testing.T) {
+	adapter := &quicConnAdapter{qconn: nil}
+	query := dnscodec.NewQuery("example.com", dns.TypeA)
+	query.ID = 12345
+
+	adapter.MutateQuery(query)
+
+	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
+	require.NotZero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
+	require.NotZero(t, query.Flags&dnscodec.QueryFlagDNSSec)
+	require.Zero(t, query.ID, "QUIC should set ID to 0")
 }

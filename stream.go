@@ -27,7 +27,6 @@ import (
 	"github.com/bassosimone/dnscodec"
 	"github.com/bassosimone/runtimex"
 	"github.com/miekg/dns"
-	"github.com/quic-go/quic-go"
 )
 
 // Stream is a stream suitable for DNS over TCP, TLS, or QUIC.
@@ -50,12 +49,16 @@ type Stream interface {
 
 // StreamOpener abstracts over [net.Conn], [*tls.Conn], or [*quic.Conn].
 type StreamOpener interface {
-	// CloseWithError closes the connection.
+	// Close closes the connection.
 	//
 	// For [net.Conn] and [*tls.Conn], this calls conn.Close.
 	//
-	// For [*quic.Conn], this calls conn.CloseWithError.
-	CloseWithError(code quic.ApplicationErrorCode, desc string) error
+	// For [*quic.Conn], this calls conn.CloseWithError with no error.
+	Close() error
+
+	// MutateQuery mutates the [*dnscodec.Query] to apply the correct
+	// settings for the protocol that we are using.
+	MutateQuery(msg *dnscodec.Query)
 
 	// OpenStream opens a new [Stream] over the connection.
 	//
@@ -65,25 +68,25 @@ type StreamOpener interface {
 	OpenStream() (Stream, error)
 }
 
-// streamDialer allows dialing a [net.Conn], [*tls.Conn], or [*quic.Conn].
-type streamDialer interface {
+// StreamOpenerDialer creates [StreamOpener] instances for a given address.
+//
+// Implementations include [*StreamOpenerDialerTCP], [*StreamOpenerDialerTLS],
+// and [*StreamOpenerDialerQUIC]. Users may also provide custom implementations
+// for advanced use cases such as using utls or uquic.
+type StreamOpenerDialer interface {
 	// DialContext creates a new [StreamOpener].
 	DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error)
-
-	// MutateQuery mutates the [*dnscodec.Query] to apply the correct
-	// settings for the protocol that we are using.
-	MutateQuery(msg *dnscodec.Query)
 }
 
 // Transport is a transport for DNS over TCP, TLS, and QUIC.
 //
-// Construct using [NewTransportTCP], [NewTransportTLS], [NewTransportQUIC].
+// Construct using [NewTransport] with a [StreamOpenerDialer] implementation.
 //
 // Transport creates a new connection for each Exchange call and targets the
 // specific [netip.AddrPort] endpoint configured at construction time.
 type Transport struct {
-	// dialer is the [streamDialer] to build the [StreamOpener] for exchanging messages.
-	dialer streamDialer
+	// dialer is the [StreamOpenerDialer] to build the [StreamOpener] for exchanging messages.
+	dialer StreamOpenerDialer
 
 	// endpoint is the server endpoint to use to query.
 	endpoint netip.AddrPort
@@ -95,8 +98,11 @@ type Transport struct {
 	ObserveRawResponse func([]byte)
 }
 
-// newTransportStream creates a new [*Transport].
-func newTransportStream(dialer streamDialer, endpoint netip.AddrPort) *Transport {
+// NewTransport creates a new [*Transport] with the given [StreamOpenerDialer] and endpoint.
+//
+// Use [NewStreamOpenerDialerTCP], [NewStreamOpenerDialerTLS], or [NewStreamOpenerDialerQUIC]
+// to create dialers for common protocols, or provide a custom implementation.
+func NewTransport(dialer StreamOpenerDialer, endpoint netip.AddrPort) *Transport {
 	return &Transport{dialer: dialer, endpoint: endpoint}
 }
 
@@ -123,12 +129,8 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		// Closing w/o specific error -- RFC 9250 Sect. 4.3
-		//
-		// Obviously no error is sent for TCP/TLS.
-		const quicNoError = 0x00
 		<-ctx.Done()
-		conn.CloseWithError(quicNoError, "")
+		conn.Close()
 	}()
 
 	// 3. defer to ExchangeWithStreamOpener.
@@ -154,7 +156,7 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 
 	// 3. Mutate and serialize the query.
 	query = query.Clone()
-	dt.dialer.MutateQuery(query)
+	conn.MutateQuery(query)
 	queryMsg, err := query.NewMsg()
 	if err != nil {
 		return nil, err

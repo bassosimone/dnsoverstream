@@ -9,72 +9,79 @@ import (
 	"time"
 
 	"github.com/bassosimone/dnscodec"
-	quic "github.com/quic-go/quic-go"
 )
 
-// NetDialer is typically [*net.Dialer] or [*tls.Dialer].
+// NetDialer is typically [*net.Dialer].
 type NetDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-// NewTransportTCP returns a new [*Transport] for DNS over TCP.
-func NewTransportTCP(dialer NetDialer, endpoint netip.AddrPort) *Transport {
-	return newTransportStream(&tcpStreamDialer{dialer}, endpoint)
+// StreamOpenerDialerTCP implements [StreamOpenerDialer] for DNS over TCP.
+//
+// Construct using [NewStreamOpenerDialerTCP].
+type StreamOpenerDialerTCP struct {
+	// Dialer is the underlying [NetDialer].
+	Dialer NetDialer
 }
 
-// tcpStreamDialer implements [streamDialer] for TCP.
-type tcpStreamDialer struct {
-	nd NetDialer
+// NewStreamOpenerDialerTCP creates a new [*StreamOpenerDialerTCP].
+func NewStreamOpenerDialerTCP(dialer NetDialer) *StreamOpenerDialerTCP {
+	return &StreamOpenerDialerTCP{Dialer: dialer}
 }
 
-var _ streamDialer = &tcpStreamDialer{}
+var _ StreamOpenerDialer = &StreamOpenerDialerTCP{}
 
-// DialContext implements [streamDialer].
-func (d *tcpStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
-	conn, err := d.nd.DialContext(ctx, "tcp", address.String())
+// DialContext implements [StreamOpenerDialer].
+func (d *StreamOpenerDialerTCP) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+	conn, err := d.Dialer.DialContext(ctx, "tcp", address.String())
 	if err != nil {
 		return nil, err
 	}
-	return &tcpStreamConn{conn}, nil
+	return &tcpStreamConn{conn: conn}, nil
 }
 
-// MutateQuery implements [streamDialer].
-func (d *tcpStreamDialer) MutateQuery(msg *dnscodec.Query) {
-	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
-}
-
-// tcpStreamConn implements both [StreamOpener] and [Stream] for TCP or TLS.
+// tcpStreamConn implements [StreamOpener] for TCP.
 type tcpStreamConn struct {
-	Conn net.Conn
+	conn net.Conn
 }
 
-// CloseWithError implements [StreamOpener].
-func (s *tcpStreamConn) CloseWithError(code quic.ApplicationErrorCode, desc string) error {
-	return s.Conn.Close()
+// Close implements [StreamOpener].
+func (s *tcpStreamConn) Close() error {
+	return s.conn.Close()
+}
+
+// MutateQuery implements [StreamOpener].
+func (s *tcpStreamConn) MutateQuery(msg *dnscodec.Query) {
+	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
 }
 
 // OpenStream implements [StreamOpener].
 func (s *tcpStreamConn) OpenStream() (Stream, error) {
-	return s, nil
+	return &tcpStream{s.conn}, nil
+}
+
+// tcpStream implements [Stream] for TCP.
+type tcpStream struct {
+	conn net.Conn
 }
 
 // Close implements [Stream].
-func (s *tcpStreamConn) Close() error {
-	// We do not close the stream midway for TCP or TLS.
+func (s *tcpStream) Close() error {
+	// We do not close the stream midway for TCP.
 	return nil
 }
 
 // Read implements [Stream].
-func (s *tcpStreamConn) Read(buff []byte) (int, error) {
-	return s.Conn.Read(buff)
+func (s *tcpStream) Read(buff []byte) (int, error) {
+	return s.conn.Read(buff)
 }
 
 // SetDeadline implements [Stream].
-func (s *tcpStreamConn) SetDeadline(t time.Time) error {
-	return s.Conn.SetDeadline(t)
+func (s *tcpStream) SetDeadline(t time.Time) error {
+	return s.conn.SetDeadline(t)
 }
 
 // Write implements [Stream].
-func (s *tcpStreamConn) Write(data []byte) (int, error) {
-	return s.Conn.Write(data)
+func (s *tcpStream) Write(data []byte) (int, error) {
+	return s.conn.Write(data)
 }

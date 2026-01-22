@@ -34,13 +34,15 @@ func run(t *testing.T, dt *dnsoverstream.Transport) {
 }
 
 func TestIntegrationDNSOverTCPWorks(t *testing.T) {
-	dt := dnsoverstream.NewTransportTCP(&net.Dialer{}, netip.MustParseAddrPort("8.8.8.8:53"))
+	dialer := dnsoverstream.NewStreamOpenerDialerTCP(&net.Dialer{})
+	dt := dnsoverstream.NewTransport(dialer, netip.MustParseAddrPort("8.8.8.8:53"))
 	run(t, dt)
 }
 
 func TestIntegrationDNSOverTLSWorks(t *testing.T) {
-	dialer := dnsoverstream.NewTLSDialerDNSOverTLS("dns.google")
-	dt := dnsoverstream.NewTransportTLS(dialer, netip.MustParseAddrPort("8.8.8.8:853"))
+	tlsDialer := dnsoverstream.NewTLSDialerDNSOverTLS("dns.google")
+	dialer := dnsoverstream.NewStreamOpenerDialerTLS(tlsDialer)
+	dt := dnsoverstream.NewTransport(dialer, netip.MustParseAddrPort("8.8.8.8:853"))
 	run(t, dt)
 }
 
@@ -52,9 +54,10 @@ func TestIntegrationDNSOverQUICWorks(t *testing.T) {
 	pconn, err := lc.ListenPacket(context.Background(), "udp", ":0")
 	require.NoError(t, err)
 	defer pconn.Close()
-	dialer := dnsoverstream.NewQUICDialer(pconn, "dns.adguard.com")
+	quicDialer := dnsoverstream.NewQUICDialer(pconn, "dns.adguard.com")
+	dialer := dnsoverstream.NewStreamOpenerDialerQUIC(quicDialer)
 
-	dt := dnsoverstream.NewTransportQUIC(dialer, udpAddr.AddrPort())
+	dt := dnsoverstream.NewTransport(dialer, udpAddr.AddrPort())
 	run(t, dt)
 }
 

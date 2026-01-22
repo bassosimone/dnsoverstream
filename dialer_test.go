@@ -13,25 +13,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTCPStreamDialerDialContextCanceled(t *testing.T) {
+func TestStreamOpenerDialerTCPDialContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	dialer := &tcpStreamDialer{nd: &net.Dialer{}}
+	dialer := NewStreamOpenerDialerTCP(&net.Dialer{})
 	_, err := dialer.DialContext(ctx, netip.MustParseAddrPort("127.0.0.1:53"))
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestTLSStreamDialerDialContextCanceled(t *testing.T) {
+func TestStreamOpenerDialerTLSDialContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	dialer := &tlsStreamDialer{nd: &tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{}}}
+	dialer := NewStreamOpenerDialerTLS(&tls.Dialer{NetDialer: &net.Dialer{}, Config: &tls.Config{}})
 	_, err := dialer.DialContext(ctx, netip.MustParseAddrPort("127.0.0.1:853"))
 	require.ErrorIs(t, err, context.Canceled)
 }
 
-func TestQUICStreamDialerDialContextCanceled(t *testing.T) {
+func TestStreamOpenerDialerQUICDialContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -40,9 +40,7 @@ func TestQUICStreamDialerDialContextCanceled(t *testing.T) {
 	require.NoError(t, err)
 	defer pconn.Close()
 
-	dialer := &quicStreamDialer{
-		qd: NewQUICDialer(pconn, "example.com"),
-	}
+	dialer := NewStreamOpenerDialerQUIC(NewQUICDialer(pconn, "example.com"))
 	_, err = dialer.DialContext(ctx, netip.MustParseAddrPort("127.0.0.1:853"))
 	require.ErrorIs(t, err, context.Canceled)
 }
@@ -51,7 +49,7 @@ func TestTransportExchangeDialContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	dt := NewTransportTCP(&net.Dialer{}, netip.MustParseAddrPort("127.0.0.1:53"))
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.MustParseAddrPort("127.0.0.1:53"))
 	_, err := dt.Exchange(ctx, dnscodec.NewQuery("example.com", 1))
 	require.ErrorIs(t, err, context.Canceled)
 }

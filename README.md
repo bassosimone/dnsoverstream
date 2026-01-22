@@ -20,13 +20,16 @@ import (
 )
 
 // 1a. create a DNS-over-TCP transport
+tcpDialer := dnsoverstream.NewStreamOpenerDialerTCP(&net.Dialer{})
 tcpEndpoint := netip.MustParseAddrPort("8.8.8.8:53")
-tcpTransport := dnsoverstream.NewTransportTCP(&net.Dialer{}, tcpEndpoint)
+tcpTransport := dnsoverstream.NewTransport(tcpDialer, tcpEndpoint)
 
 // 1b. create a DNS-over-TLS transport
+tlsDialer := dnsoverstream.NewStreamOpenerDialerTLS(
+	dnsoverstream.NewTLSDialerDNSOverTLS("dns.google"),
+)
 tlsEndpoint := netip.MustParseAddrPort("8.8.8.8:853")
-tlsDialer := dnsoverstream.NewTLSDialerDNSOverTLS("dns.google")
-tlsTransport := dnsoverstream.NewTransportTLS(tlsDialer, tlsEndpoint)
+tlsTransport := dnsoverstream.NewTransport(tlsDialer, tlsEndpoint)
 
 // 1c. create a DNS-over-QUIC transport
 lc := &net.ListenConfig{}
@@ -35,9 +38,11 @@ if err != nil {
 	log.Fatal(err)
 }
 defer pconn.Close()
-quicDialer := dnsoverstream.NewQUICDialer(pconn, "dns.adguard.com")
+quicDialer := dnsoverstream.NewStreamOpenerDialerQUIC(
+	dnsoverstream.NewQUICDialer(pconn, "dns.adguard.com"),
+)
 quicEndpoint := netip.MustParseAddrPort("94.140.14.14:853")
-quicTransport := dnsoverstream.NewTransportQUIC(quicDialer, quicEndpoint)
+quicTransport := dnsoverstream.NewTransport(quicDialer, quicEndpoint)
 
 // 2. exchange the query with a response
 query := dnscodec.NewQuery("dns.google", dns.TypeA)
@@ -51,7 +56,7 @@ if err != nil {
 
 - **Multiple protocols:** Supports TCP, TLS, and QUIC.
 
-- **Small API:** One transport type with protocol-specific constructors.
+- **Composable API:** One `NewTransport` function with pluggable `StreamOpenerDialer` implementations.
 
 - **Deterministic queries:** Mutates queries for each transport while
   keeping the caller's query intact.

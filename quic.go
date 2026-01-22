@@ -61,32 +61,28 @@ func (qdd *QUICDialer) Dial(ctx context.Context, address netip.AddrPort) (*quic.
 	return qdd.Transport.Dial(ctx, udpAddr, qdd.TLSConfig, qdd.QUICConfig)
 }
 
-// NewTransportQUIC returns a new [*Transport] for DNS over QUIC.
-func NewTransportQUIC(dialer *QUICDialer, endpoint netip.AddrPort) *Transport {
-	return newTransportStream(&quicStreamDialer{dialer}, endpoint)
+// StreamOpenerDialerQUIC implements [StreamOpenerDialer] for DNS over QUIC.
+//
+// Construct using [NewStreamOpenerDialerQUIC].
+type StreamOpenerDialerQUIC struct {
+	// Dialer is the underlying [*QUICDialer].
+	Dialer *QUICDialer
 }
 
-// quicStreamDialer implements [streamDialer] for QUIC.
-type quicStreamDialer struct {
-	qd *QUICDialer
+// NewStreamOpenerDialerQUIC creates a new [*StreamOpenerDialerQUIC].
+func NewStreamOpenerDialerQUIC(dialer *QUICDialer) *StreamOpenerDialerQUIC {
+	return &StreamOpenerDialerQUIC{Dialer: dialer}
 }
 
-var _ streamDialer = &quicStreamDialer{}
+var _ StreamOpenerDialer = &StreamOpenerDialerQUIC{}
 
-// DialContext implements [streamDialer].
-func (d *quicStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
-	conn, err := d.qd.Dial(ctx, address)
+// DialContext implements [StreamOpenerDialer].
+func (d *StreamOpenerDialerQUIC) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+	conn, err := d.Dialer.Dial(ctx, address)
 	if err != nil {
 		return nil, err
 	}
 	return &quicConnAdapter{conn, sync.Once{}}, nil
-}
-
-// MutateQuery implements [streamDialer].
-func (d *quicStreamDialer) MutateQuery(msg *dnscodec.Query) {
-	msg.Flags |= dnscodec.QueryFlagBlockLengthPadding | dnscodec.QueryFlagDNSSec
-	msg.ID = 0
-	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
 }
 
 // quicConnAdapter adapts [*quic.Conn] to [StreamOpener].
@@ -95,12 +91,21 @@ type quicConnAdapter struct {
 	once  sync.Once
 }
 
-// CloseWithError implements [StreamOpener].
-func (q *quicConnAdapter) CloseWithError(code quic.ApplicationErrorCode, desc string) (err error) {
+// Close implements [StreamOpener].
+//
+// For QUIC, this calls CloseWithError with no error per RFC 9250 Sect. 4.3.
+func (q *quicConnAdapter) Close() (err error) {
 	q.once.Do(func() {
-		err = q.qconn.CloseWithError(code, desc)
+		err = q.qconn.CloseWithError(0, "")
 	})
 	return
+}
+
+// MutateQuery implements [StreamOpener].
+func (q *quicConnAdapter) MutateQuery(msg *dnscodec.Query) {
+	msg.Flags |= dnscodec.QueryFlagBlockLengthPadding | dnscodec.QueryFlagDNSSec
+	msg.ID = 0
+	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
 }
 
 // OpenStream implements [StreamOpener].

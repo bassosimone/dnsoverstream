@@ -31,7 +31,8 @@ func Example_withLocalTCPServer() {
 
 	// 2. Create the DNS transport
 	endpoint := runtimex.PanicOnError1(netip.ParseAddrPort(srv.Address()))
-	dt := dnsoverstream.NewTransportTCP(&net.Dialer{}, endpoint)
+	dialer := dnsoverstream.NewStreamOpenerDialerTCP(&net.Dialer{})
+	dt := dnsoverstream.NewTransport(dialer, endpoint)
 
 	// 3. Create the query
 	query := dnscodec.NewQuery("dns.google", dns.TypeA)
@@ -80,11 +81,12 @@ func Example_withLocalTLSServer() {
 
 	// 3. Create the DNS transport
 	endpoint := runtimex.PanicOnError1(netip.ParseAddrPort(srv.Address()))
-	dialer := &tls.Dialer{
+	tlsDialer := &tls.Dialer{
 		NetDialer: &net.Dialer{},
 		Config:    clientConfig,
 	}
-	dt := dnsoverstream.NewTransportTLS(dialer, endpoint)
+	soDialer := dnsoverstream.NewStreamOpenerDialerTLS(tlsDialer)
+	dt := dnsoverstream.NewTransport(soDialer, endpoint)
 
 	// 4. Create the query
 	query := dnscodec.NewQuery("dns.google", dns.TypeA)

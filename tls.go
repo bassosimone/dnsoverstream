@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/netip"
+	"time"
 
 	"github.com/bassosimone/dnscodec"
 )
@@ -27,41 +28,80 @@ func NewTLSDialerDNSOverTLS(serverName string) *tls.Dialer {
 	}
 }
 
-// TLSDialer is typically [*tls.Dialer] or a compatible TLS dialer.
+// TLSDialer is typically [*tls.Dialer] or a compatible TLS dialer such as utls.
 type TLSDialer interface {
 	DialContext(ctx context.Context, network, address string) (net.Conn, error)
 }
 
-// NewTransportTLS returns a new [*Transport] for DNS over TLS using [*tls.Dialer].
-func NewTransportTLS(dialer *tls.Dialer, endpoint netip.AddrPort) *Transport {
-	return NewTransportTLSWithDialer(dialer, endpoint)
+// StreamOpenerDialerTLS implements [StreamOpenerDialer] for DNS over TLS.
+//
+// Construct using [NewStreamOpenerDialerTLS].
+type StreamOpenerDialerTLS struct {
+	// Dialer is the underlying [TLSDialer].
+	Dialer TLSDialer
 }
 
-// NewTransportTLSWithDialer returns a new [*Transport] for DNS over TLS.
+// NewStreamOpenerDialerTLS creates a new [*StreamOpenerDialerTLS].
 //
 // The caller is responsible for ensuring the dialer actually performs TLS.
-func NewTransportTLSWithDialer(dialer TLSDialer, endpoint netip.AddrPort) *Transport {
-	return newTransportStream(&tlsStreamDialer{dialer}, endpoint)
+func NewStreamOpenerDialerTLS(dialer TLSDialer) *StreamOpenerDialerTLS {
+	return &StreamOpenerDialerTLS{Dialer: dialer}
 }
 
-// tlsStreamDialer implements [streamDialer] for TLS.
-type tlsStreamDialer struct {
-	nd TLSDialer
-}
+var _ StreamOpenerDialer = &StreamOpenerDialerTLS{}
 
-var _ streamDialer = &tlsStreamDialer{}
-
-// DialContext implements [streamDialer].
-func (d *tlsStreamDialer) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
-	conn, err := d.nd.DialContext(ctx, "tcp", address.String())
+// DialContext implements [StreamOpenerDialer].
+func (d *StreamOpenerDialerTLS) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
+	conn, err := d.Dialer.DialContext(ctx, "tcp", address.String())
 	if err != nil {
 		return nil, err
 	}
-	return &tcpStreamConn{conn}, nil
+	return &tlsStreamConn{conn}, nil
 }
 
-// MutateQuery implements [streamDialer].
-func (d *tlsStreamDialer) MutateQuery(msg *dnscodec.Query) {
+// tlsStreamConn implements [StreamOpener] for TLS.
+type tlsStreamConn struct {
+	conn net.Conn
+}
+
+// Close implements [StreamOpener].
+func (s *tlsStreamConn) Close() error {
+	return s.conn.Close()
+}
+
+// MutateQuery implements [StreamOpener].
+func (s *tlsStreamConn) MutateQuery(msg *dnscodec.Query) {
 	msg.Flags |= dnscodec.QueryFlagBlockLengthPadding | dnscodec.QueryFlagDNSSec
 	msg.MaxSize = dnscodec.QueryMaxResponseSizeTCP
+}
+
+// OpenStream implements [StreamOpener].
+func (s *tlsStreamConn) OpenStream() (Stream, error) {
+	return &tlsStream{s.conn}, nil
+}
+
+// tlsStream implements [Stream] for TLS.
+type tlsStream struct {
+	conn net.Conn
+}
+
+// Close implements [Stream].
+func (s *tlsStream) Close() error {
+	// We do not close the stream midway for TLS.
+	return nil
+}
+
+// Read implements [Stream].
+func (s *tlsStream) Read(buff []byte) (int, error) {
+	return s.conn.Read(buff)
+}
+
+// SetDeadline implements [Stream].
+func (s *tlsStream) SetDeadline(t time.Time) error {
+	return s.conn.SetDeadline(t)
+}
+
+// Write implements [Stream].
+func (s *tlsStream) Write(data []byte) (int, error) {
+	return s.conn.Write(data)
 }
