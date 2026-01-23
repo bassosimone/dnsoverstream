@@ -410,6 +410,28 @@ func TestExchangeWithStreamOpenerReadBodyError(t *testing.T) {
 	require.ErrorIs(t, err, expected)
 }
 
+func TestExchangeWithStreamOpenerResponseExceedsMaxSize(t *testing.T) {
+	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
+	conn := &streamOpenerStub{
+		mutateQuery: func(msg *dnscodec.Query) {
+			// Set a small MaxSize to trigger the check.
+			msg.MaxSize = 100
+		},
+		openStream: func() (Stream, error) {
+			// Return a length header indicating 200 bytes, which exceeds MaxSize of 100.
+			frame := []byte{0x00, 0xc8} // 200 in big-endian
+			return &streamStub{
+				read:  bytes.NewReader(frame).Read,
+				write: func(p []byte) (int, error) { return len(p), nil },
+				close: func() error { return nil },
+			}, nil
+		},
+	}
+
+	_, err := dt.ExchangeWithStreamOpener(context.Background(), conn, dnscodec.NewQuery("example.com", dns.TypeA))
+	require.ErrorIs(t, err, dnscodec.ErrServerMisbehaving)
+}
+
 func TestExchangeWithStreamOpenerUnpackError(t *testing.T) {
 	dt := NewTransport(NewStreamOpenerDialerTCP(&net.Dialer{}), netip.AddrPort{})
 	conn := &streamOpenerStub{

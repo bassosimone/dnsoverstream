@@ -201,7 +201,9 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 		return nil, err
 	}
 	length := int(header[0])<<8 | int(header[1])
-	// TODO(bassosimone): consider enforcing query.MaxSize here.
+	if length > int(query.MaxSize) {
+		return nil, dnscodec.ErrServerMisbehaving
+	}
 	rawResp := make([]byte, length)
 	if _, err := io.ReadFull(br, rawResp); err != nil {
 		return nil, err
@@ -220,7 +222,9 @@ func (dt *Transport) ExchangeWithStreamOpener(ctx context.Context, conn StreamOp
 
 // newStreamMsgFrame creates a new raw frame for sending a message over a stream.
 func newStreamMsgFrame(rawMsg []byte) []byte {
-	// TODO(bassosimone): re-evaluate whether this can panic when we add more tests.
+	// Per RFC 1035 Section 4.2.2, DNS over TCP uses a 2-byte length prefix,
+	// limiting messages to 65535 bytes. This is a protocol invariant that
+	// miekg/dns should never violate.
 	runtimex.Assert(len(rawMsg) <= math.MaxUint16)
 	rawMsgFrame := []byte{byte(len(rawMsg) >> 8)}
 	rawMsgFrame = append(rawMsgFrame, byte(len(rawMsg)))
