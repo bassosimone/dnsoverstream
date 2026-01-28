@@ -76,6 +76,14 @@ func NewStreamOpenerDialerQUIC(dialer *QUICDialer) *StreamOpenerDialerQUIC {
 
 var _ StreamOpenerDialer = &StreamOpenerDialerQUIC{}
 
+// NewQUICStreamOpener creates a [StreamOpener] from an existing [*quic.Conn].
+//
+// This allows callers who already hold a QUIC connection to use
+// [*Transport.ExchangeWithStreamOpener] without dialing.
+func NewQUICStreamOpener(conn *quic.Conn) StreamOpener {
+	return &quicConnAdapter{qconn: conn, once: sync.Once{}}
+}
+
 // DialContext implements [StreamOpenerDialer].
 func (d *StreamOpenerDialerQUIC) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
 	conn, err := d.Dialer.Dial(ctx, address)

@@ -129,8 +129,8 @@ func (dt *Transport) Exchange(ctx context.Context, query *dnscodec.Query) (*dnsc
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
+		defer conn.Close()
 		<-ctx.Done()
-		conn.Close()
 	}()
 
 	// 3. defer to ExchangeWithStreamOpener.

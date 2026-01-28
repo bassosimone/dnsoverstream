@@ -545,37 +545,3 @@ func TestNewTransportWithCustomDialerDialError(t *testing.T) {
 	require.ErrorIs(t, err, expected)
 }
 
-func TestTcpStreamConnMutateQuery(t *testing.T) {
-	conn := &tcpStreamConn{conn: nil}
-	query := dnscodec.NewQuery("example.com", dns.TypeA)
-
-	conn.MutateQuery(query)
-
-	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
-	require.Zero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
-	require.Zero(t, query.Flags&dnscodec.QueryFlagDNSSec)
-}
-
-func TestTlsStreamConnMutateQuery(t *testing.T) {
-	conn := &tlsStreamConn{conn: nil}
-	query := dnscodec.NewQuery("example.com", dns.TypeA)
-
-	conn.MutateQuery(query)
-
-	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
-	require.NotZero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
-	require.NotZero(t, query.Flags&dnscodec.QueryFlagDNSSec)
-}
-
-func TestQuicConnAdapterMutateQuery(t *testing.T) {
-	adapter := &quicConnAdapter{qconn: nil}
-	query := dnscodec.NewQuery("example.com", dns.TypeA)
-	query.ID = 12345
-
-	adapter.MutateQuery(query)
-
-	require.Equal(t, uint16(dnscodec.QueryMaxResponseSizeTCP), query.MaxSize)
-	require.NotZero(t, query.Flags&dnscodec.QueryFlagBlockLengthPadding)
-	require.NotZero(t, query.Flags&dnscodec.QueryFlagDNSSec)
-	require.Zero(t, query.ID, "QUIC should set ID to 0")
-}

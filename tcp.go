@@ -31,6 +31,14 @@ func NewStreamOpenerDialerTCP(dialer NetDialer) *StreamOpenerDialerTCP {
 
 var _ StreamOpenerDialer = &StreamOpenerDialerTCP{}
 
+// NewTCPStreamOpener creates a [StreamOpener] from an existing [net.Conn].
+//
+// This allows callers who already hold a TCP connection to use
+// [*Transport.ExchangeWithStreamOpener] without dialing.
+func NewTCPStreamOpener(conn net.Conn) StreamOpener {
+	return &tcpStreamConn{conn: conn}
+}
+
 // DialContext implements [StreamOpenerDialer].
 func (d *StreamOpenerDialerTCP) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
 	conn, err := d.Dialer.DialContext(ctx, "tcp", address.String())

@@ -50,6 +50,16 @@ func NewStreamOpenerDialerTLS(dialer TLSDialer) *StreamOpenerDialerTLS {
 
 var _ StreamOpenerDialer = &StreamOpenerDialerTLS{}
 
+// NewTLSStreamOpener creates a [StreamOpener] from an existing TLS [net.Conn].
+//
+// This allows callers who already hold a TLS connection to use
+// [*Transport.ExchangeWithStreamOpener] without dialing.
+//
+// The caller is responsible for ensuring the connection is actually a TLS connection.
+func NewTLSStreamOpener(conn net.Conn) StreamOpener {
+	return &tlsStreamConn{conn}
+}
+
 // DialContext implements [StreamOpenerDialer].
 func (d *StreamOpenerDialerTLS) DialContext(ctx context.Context, address netip.AddrPort) (StreamOpener, error) {
 	conn, err := d.Dialer.DialContext(ctx, "tcp", address.String())
