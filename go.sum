@@ -1,7 +1,7 @@
-github.com/bassosimone/dnscodec v0.0.0-20260310100807-317675eb697f h1:ADTFJ6vZejk+BKZ9bP5RQZT0udAEYVy37ZGvpUVGZEk=
-github.com/bassosimone/dnscodec v0.0.0-20260310100807-317675eb697f/go.mod h1:R7cdXGjGDQTbt7aHKx2aPvPuomKwfzTKLLfzu5O4JOA=
-github.com/bassosimone/dnstest v0.0.0-20260310100807-504008aac27d h1:sTtbUMqDbQX+0qQFYku4S+qeghkP68I2IGaNGgyfRtY=
-github.com/bassosimone/dnstest v0.0.0-20260310100807-504008aac27d/go.mod h1:N9jIPPQkdmyQtpJ1OSdp1n0I+dyzlaZd1RcwMP8JsSE=
+github.com/bassosimone/dnscodec v0.0.0-20260315095815-6c62273d0db8 h1:MtfG+gQfXSAYsmTEQd0YPKgx7uKbTV9gAXaX03gNB8Q=
+github.com/bassosimone/dnscodec v0.0.0-20260315095815-6c62273d0db8/go.mod h1:mSibJ1WTUi5eF8Nn5khsSUHIIdXZ6aK3S+mkV5247rE=
+github.com/bassosimone/dnstest v0.0.0-20260315095815-43f9058b5317 h1:lYQftde1QWlGvP/0PPvWizUCE//aYXgC0GBZnumO4wY=
+github.com/bassosimone/dnstest v0.0.0-20260315095815-43f9058b5317/go.mod h1:N10K/EAw7u1O40d8jsezXQoxEZrCef3YnUwO813hCpc=
 github.com/bassosimone/netstub v0.0.0-20260215140819-e5f4b4b48997 h1:R50/QauP1wURY03phd3WLiD9Yarr+j4IMXPsGEbwP94=
 github.com/bassosimone/netstub v0.0.0-20260215140819-e5f4b4b48997/go.mod h1:P0CzRmMyj0/av01KYL70Cb+/RMRpmtVQf8vI7oIvcJY=
 github.com/bassosimone/pkitest v0.0.0-20260108162522-4e97d4738e31 h1:bWrYpMtPO3efLcYHqX9Z3mHmV0MGAE8uaJ1fJaEV2RE=
