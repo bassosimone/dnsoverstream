@@ -3,11 +3,11 @@ module github.com/bassosimone/dnsoverstream
 go 1.25.5
 
 require (
-	github.com/bassosimone/dnscodec v0.0.0-20260426211622-1c3a8bede978
-	github.com/bassosimone/dnstest v0.0.0-20260426214552-21e88fb85db8
-	github.com/bassosimone/netstub v0.0.0-20260426213312-fbfe4d63df96
-	github.com/bassosimone/pkitest v0.0.0-20260426214024-1be367af2507
-	github.com/bassosimone/runtimex v0.0.0-20260426205938-f859235d82e0
+	github.com/bassosimone/dnscodec v0.0.0-20260506051025-477fb6fc65dd
+	github.com/bassosimone/dnstest v0.0.0-20260506051800-2638107a5039
+	github.com/bassosimone/netstub v0.0.0-20260506051424-2560572cc9cf
+	github.com/bassosimone/pkitest v0.0.0-20260506051517-569dfef1de64
+	github.com/bassosimone/runtimex v0.0.0-20260430082757-ec3a7b516e79
 	github.com/miekg/dns v1.1.72
 	github.com/quic-go/quic-go v0.59.0
 	github.com/stretchr/testify v1.11.1
