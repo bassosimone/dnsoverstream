@@ -3,11 +3,11 @@ module github.com/bassosimone/dnsoverstream
 go 1.25.5
 
 require (
-	github.com/bassosimone/dnscodec v0.0.0-20260615114925-94a4c2fbf3b4
-	github.com/bassosimone/dnstest v0.0.0-20260616123603-0cfa0c816b13
-	github.com/bassosimone/netstub v0.0.0-20260615120935-aee6f411f7c8
-	github.com/bassosimone/pkitest v0.0.0-20260615122033-8e73e7843b18
-	github.com/bassosimone/runtimex v0.0.0-20260615112505-ee72c4f0769e
+	github.com/bassosimone/dnscodec v0.0.0-20260708085128-509089cc75f8
+	github.com/bassosimone/dnstest v0.0.0-20260708095631-cc76beccfa05
+	github.com/bassosimone/netstub v0.0.0-20260708092707-84f2b5087f74
+	github.com/bassosimone/pkitest v0.0.0-20260708093733-a6664538a85c
+	github.com/bassosimone/runtimex v0.0.0-20260708083610-01df83158243
 	github.com/miekg/dns v1.1.72
 	github.com/quic-go/quic-go v0.60.0
 	github.com/stretchr/testify v1.11.1
@@ -21,9 +21,9 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.46.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
